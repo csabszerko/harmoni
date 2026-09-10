@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 
 from version import __version__
 
-GITHUB_REPO = "Ssenseii/spotify-yt-dlp-downloader"
+GITHUB_REPO = "Ssenseii/harmoni"
 GITHUB_LATEST_RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 

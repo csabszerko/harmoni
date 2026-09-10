@@ -49,7 +49,7 @@ class TestCheckAppUpdate(unittest.TestCase):
             "tools.app_update_checker.get_latest_release",
             return_value={
                 "tag_name": "v1.2.1",
-                "html_url": "https://github.com/Ssenseii/spotify-yt-dlp-downloader/releases/tag/v1.2.1",
+                "html_url": "https://github.com/Ssenseii/harmoni/releases/tag/v1.2.1",
             },
         ):
             result = check_app_update()
