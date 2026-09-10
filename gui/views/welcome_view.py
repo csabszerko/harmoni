@@ -1,7 +1,6 @@
 """Welcome view with quick start guide and Exportify import."""
 
 import os
-import csv
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFrame, QSizePolicy,
@@ -10,6 +9,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 
 from gui.workers.download_queue import DownloadQueue
+from utils.loaders import parse_exportify_csv_for_queue
 
 
 class DropZone(QFrame):
@@ -524,31 +524,7 @@ class WelcomeView(QWidget):
             self.navigate_to.emit("downloads")
 
     def _parse_exportify_csv(self, file_path: str) -> list:
-        tracks = []
-
-        with open(file_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-
-            for row in reader:
-                track_name = row.get('Track Name') or row.get('track_name') or row.get('name')
-                artist_name = row.get('Artist Name(s)') or row.get('artist_name') or row.get('artist')
-                album_name = row.get('Album Name') or row.get('album_name') or row.get('album')
-                playlist_name = row.get('Playlist Name') or row.get('playlist_name') or os.path.basename(file_path)
-
-                if track_name and artist_name:
-                    if ',' in artist_name:
-                        artist_name = artist_name.split(',')[0].strip()
-                    elif ';' in artist_name:
-                        artist_name = artist_name.split(';')[0].strip()
-
-                    tracks.append({
-                        'track': track_name.strip(),
-                        'artist': artist_name.strip(),
-                        'album': album_name.strip() if album_name else '',
-                        'playlist': playlist_name.replace('.csv', '').strip() if playlist_name else 'Import'
-                    })
-
-        return tracks
+        return parse_exportify_csv_for_queue(file_path)
 
     def _add_tracks_to_queue(self, tracks: list):
         if not self.download_queue:

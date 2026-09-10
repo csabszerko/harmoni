@@ -91,6 +91,41 @@ def _extract_json_metadata(track: dict) -> dict:
     return {k: v for k, v in metadata.items() if v}
 
 
+def parse_exportify_csv_for_queue(file_path: str) -> list:
+    """Parse an Exportify CSV into flat dicts (track/artist/album/playlist) for queueing.
+
+    This is a lighter-weight variant of load_exportify_tracks(), used by drag-and-drop
+    import, which keeps only the primary artist and tags each track with a playlist name.
+    """
+    tracks = []
+
+    # utf-8-sig strips the BOM Exportify includes and is backwards compatible with
+    # plain utf-8 files that have no BOM.
+    with open(file_path, "r", newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+
+        for row in reader:
+            track_name = row.get("Track Name") or row.get("track_name") or row.get("name")
+            artist_name = row.get("Artist Name(s)") or row.get("artist_name") or row.get("artist")
+            album_name = row.get("Album Name") or row.get("album_name") or row.get("album")
+            playlist_name = row.get("Playlist Name") or row.get("playlist_name") or os.path.basename(file_path)
+
+            if track_name and artist_name:
+                if ";" in artist_name:
+                    artist_name = artist_name.split(";")[0].strip()
+                elif "," in artist_name:
+                    artist_name = artist_name.split(",")[0].strip()
+
+                tracks.append({
+                    "track": track_name.strip(),
+                    "artist": artist_name.strip(),
+                    "album": album_name.strip() if album_name else "",
+                    "playlist": playlist_name.replace(".csv", "").strip() if playlist_name else "Import",
+                })
+
+    return tracks
+
+
 def load_exportify_tracks(csv_file: str):
     """Load a single Exportify CSV into a flat list of track dicts with comprehensive metadata."""
     tracks = []
