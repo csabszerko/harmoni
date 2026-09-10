@@ -54,6 +54,20 @@ jobs:
       - name: Build with PyInstaller (Windows)
         shell: pwsh
         run: |
+          $qtUnused = @(
+            'QtWebEngineCore','QtWebEngineWidgets','QtWebEngineQuick',
+            'QtQml','QtQuick','QtQuickWidgets','QtQuick3D','QtQuick3DRuntimeRender',
+            'QtMultimedia','QtMultimediaWidgets','QtPdf','QtPdfWidgets',
+            'QtDesigner','QtCharts','QtDataVisualization','QtSensors',
+            'QtPositioning','QtLocation','QtBluetooth','QtNfc',
+            'QtSerialPort','QtSerialBus','QtScxml','QtStateMachine',
+            'QtTest','QtHelp','QtWebSockets','QtWebChannel',
+            'QtNetworkAuth','QtRemoteObjects','QtTextToSpeech',
+            'Qt3DCore','Qt3DRender','Qt3DInput','Qt3DLogic','Qt3DAnimation','Qt3DExtras',
+            'QtSql','QtSvg','QtSvgWidgets'
+          )
+          $qtExcludeArgs = $qtUnused | ForEach-Object { '--exclude-module', "PySide6.$_" }
+
           pyinstaller `
             --name "Harmoni" `
             --windowed `
@@ -65,6 +79,7 @@ jobs:
             --add-binary "bin/yt-dlp.exe;bin" `
             --add-data "config.json.example;." `
             --add-data "data;data" `
+            @qtExcludeArgs `
             gui_main.py
 
       - name: Package as ZIP (Windows)
@@ -133,6 +148,10 @@ jobs:
           # Do not add --strip here: bin/yt-dlp is itself a PyInstaller onefile binary
           # whose Python archive is appended to the executable, and strip discards that
           # archive, leaving a bootloader stub that exits 255 on every run.
+          QT_UNUSED="QtWebEngineCore QtWebEngineWidgets QtWebEngineQuick QtQml QtQuick QtQuickWidgets QtQuick3D QtQuick3DRuntimeRender QtMultimedia QtMultimediaWidgets QtPdf QtPdfWidgets QtDesigner QtCharts QtDataVisualization QtSensors QtPositioning QtLocation QtBluetooth QtNfc QtSerialPort QtSerialBus QtScxml QtStateMachine QtTest QtHelp QtWebSockets QtWebChannel QtNetworkAuth QtRemoteObjects QtTextToSpeech Qt3DCore Qt3DRender Qt3DInput Qt3DLogic Qt3DAnimation Qt3DExtras QtSql QtSvg QtSvgWidgets"
+          QT_EXCLUDE_ARGS=()
+          for m in $QT_UNUSED; do QT_EXCLUDE_ARGS+=(--exclude-module "PySide6.$m"); done
+
           pyinstaller \
             --name "Harmoni" \
             --windowed \
@@ -144,6 +163,7 @@ jobs:
             --add-binary "bin/yt-dlp:bin" \
             --add-data "config.json.example:." \
             --add-data "data:data" \
+            "${QT_EXCLUDE_ARGS[@]}" \
             gui_main.py
 
       - name: Detect architecture
@@ -214,6 +234,10 @@ jobs:
           # Do not add --strip here: bin/yt-dlp is itself a PyInstaller onefile binary
           # whose Python archive is appended to the executable, and strip discards that
           # archive, leaving a bootloader stub that exits 255 on every run.
+          QT_UNUSED="QtWebEngineCore QtWebEngineWidgets QtWebEngineQuick QtQml QtQuick QtQuickWidgets QtQuick3D QtQuick3DRuntimeRender QtMultimedia QtMultimediaWidgets QtPdf QtPdfWidgets QtDesigner QtCharts QtDataVisualization QtSensors QtPositioning QtLocation QtBluetooth QtNfc QtSerialPort QtSerialBus QtScxml QtStateMachine QtTest QtHelp QtWebSockets QtWebChannel QtNetworkAuth QtRemoteObjects QtTextToSpeech Qt3DCore Qt3DRender Qt3DInput Qt3DLogic Qt3DAnimation Qt3DExtras QtSql QtSvg QtSvgWidgets"
+          QT_EXCLUDE_ARGS=()
+          for m in $QT_UNUSED; do QT_EXCLUDE_ARGS+=(--exclude-module "PySide6.$m"); done
+
           pyinstaller \
             --name "Harmoni" \
             --windowed \
@@ -224,6 +248,7 @@ jobs:
             --add-binary "bin/yt-dlp:bin" \
             --add-data "config.json.example:." \
             --add-data "data:data" \
+            "${QT_EXCLUDE_ARGS[@]}" \
             gui_main.py
 
       - name: Package as tar.gz (Linux)
