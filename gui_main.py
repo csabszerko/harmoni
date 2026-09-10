@@ -200,14 +200,13 @@ def main():
     # Check for yt-dlp updates
     try:
         from tools.ytdlp_update_checker import check_ytdlp_updates
-        update_info = check_ytdlp_updates()
+        update_info = check_ytdlp_updates(config.get("ytdlp_path"))
         if update_info and update_info.get('update_available'):
             message = (
                 f"yt-dlp Update Available\n\n"
                 f"Current version: {update_info['current_version']}\n"
                 f"Latest version: {update_info['latest_version']}\n\n"
-                f"To update, run:\n"
-                f"  pip install --upgrade yt-dlp"
+                f"Go to Settings > Check for Updates to install it."
             )
             QMessageBox.information(
                 None,

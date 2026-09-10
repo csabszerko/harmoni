@@ -3,6 +3,7 @@ yt-dlp update checker module.
 Checks if a newer version of yt-dlp is available and notifies the user.
 """
 
+import os
 import subprocess
 import json
 import urllib.request
@@ -11,16 +12,22 @@ from typing import Optional, Tuple
 from utils.logger import log_info, log_warning
 
 
-def get_installed_version() -> Optional[str]:
+def get_installed_version(ytdlp_path: Optional[str] = None) -> Optional[str]:
     """
     Get the currently installed version of yt-dlp.
+
+    Args:
+        ytdlp_path: Path to a specific yt-dlp binary to check. If not given
+            (or it doesn't exist), falls back to whatever "yt-dlp" resolves
+            to on PATH.
 
     Returns:
         Version string (e.g., "2024.01.01") or None if yt-dlp is not installed
     """
+    binary = ytdlp_path if ytdlp_path and os.path.isfile(ytdlp_path) else "yt-dlp"
     try:
         result = subprocess.run(
-            ["yt-dlp", "--version"],
+            [binary, "--version"],
             capture_output=True,
             text=True,
             timeout=5
@@ -93,9 +100,14 @@ def is_update_available(current: str, latest: str) -> bool:
     return latest_tuple > current_tuple
 
 
-def check_ytdlp_updates() -> Optional[dict]:
+def check_ytdlp_updates(ytdlp_path: Optional[str] = None) -> Optional[dict]:
     """
     Check if yt-dlp has updates available.
+
+    Args:
+        ytdlp_path: Path to the yt-dlp binary Harmoni is actually configured
+            to use. Passing this avoids reporting a stale/unrelated version
+            picked up from PATH.
 
     Returns:
         Dict with keys:
@@ -105,7 +117,7 @@ def check_ytdlp_updates() -> Optional[dict]:
         - 'message': str (human-readable message)
         Or None if unable to check
     """
-    current_version = get_installed_version()
+    current_version = get_installed_version(ytdlp_path)
 
     if not current_version:
         return {

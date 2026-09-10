@@ -470,19 +470,24 @@ class SettingsView(QWidget):
         """Start yt-dlp update check and installation."""
         import shutil
 
-        # Fast local check only — no network call
+        # Harmoni only ever runs yt-dlp as a standalone binary (downloaded
+        # from GitHub releases), so "updating" always means re-downloading
+        # that binary in place — never `pip install --upgrade yt-dlp`,
+        # which would touch an unrelated install and leave this binary stale.
         ytdlp_bin = self.config.get("ytdlp_path", "") or shutil.which("yt-dlp")
-        use_standalone = not (ytdlp_bin and os.path.isfile(ytdlp_bin))
+        is_installed = bool(ytdlp_bin and os.path.isfile(ytdlp_bin))
 
-        if use_standalone:
+        if is_installed:
             message = (
-                "yt-dlp is not installed. Install it now?\n\n"
-                "This will download the standalone yt-dlp binary.\n\n"
+                "Download and install the latest yt-dlp?\n\n"
+                "This will replace:\n"
+                f"{ytdlp_bin}\n\n"
                 "Continue?"
             )
         else:
             message = (
-                "Download and install the latest yt-dlp?\n\n"
+                "yt-dlp is not installed. Install it now?\n\n"
+                "This will download the standalone yt-dlp binary.\n\n"
                 "Continue?"
             )
 
@@ -504,12 +509,8 @@ class SettingsView(QWidget):
         self.ytdlp_progress_label.setVisible(True)
         self.ytdlp_progress.setValue(0)
 
-        if use_standalone:
-            from gui.workers.ytdlp_installer import YtdlpInstallerWorker
-            self.ytdlp_worker = YtdlpInstallerWorker()
-        else:
-            from gui.workers.ytdlp_updater import YtdlpUpdaterWorker
-            self.ytdlp_worker = YtdlpUpdaterWorker()
+        from gui.workers.ytdlp_installer import YtdlpInstallerWorker
+        self.ytdlp_worker = YtdlpInstallerWorker(dest_path=ytdlp_bin if is_installed else None)
 
         self.ytdlp_worker.progress.connect(self._on_ytdlp_progress)
         self.ytdlp_worker.finished.connect(self._on_ytdlp_finished)
@@ -533,6 +534,21 @@ class SettingsView(QWidget):
                 install_dir = self.ytdlp_worker.install_dir
                 if install_dir not in os.environ.get('PATH', ''):
                     os.environ['PATH'] = install_dir + os.pathsep + os.environ.get('PATH', '')
+
+            # Persist the binary's path so status checks/updates find it
+            # again on the next launch, regardless of PATH.
+            dest_path = getattr(self.ytdlp_worker, 'dest_path', None)
+            if not dest_path:
+                binary_name = "yt-dlp.exe" if os.name == "nt" else "yt-dlp"
+                dest_path = os.path.join(getattr(self.ytdlp_worker, 'install_dir', ''), binary_name)
+            if dest_path and os.path.isfile(dest_path):
+                self.config["ytdlp_path"] = dest_path
+                self.ytdlp_path_input.setText(dest_path)
+                try:
+                    save_config(self.config)
+                except Exception:
+                    pass
+
             QMessageBox.information(self, "Success", message)
         else:
             QMessageBox.warning(self, "Install Failed", message)

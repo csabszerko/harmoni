@@ -25,11 +25,14 @@ class YtdlpInstallerWorker(QThread):
     progress = Signal(int, str)
     finished = Signal(bool, str)
 
-    def __init__(self, install_dir: str = None, parent=None):
+    def __init__(self, install_dir: str = None, dest_path: str = None, parent=None):
         super().__init__(parent)
         self._cancelled = False
 
-        if install_dir is None:
+        if dest_path:
+            # Update an existing standalone binary in place, wherever it lives.
+            self.install_dir = os.path.dirname(dest_path)
+        elif install_dir is None:
             if getattr(sys, 'frozen', False) and sys.platform == "darwin":
                 # macOS .app bundle: use user-writable location
                 self.install_dir = os.path.join(
@@ -45,6 +48,8 @@ class YtdlpInstallerWorker(QThread):
         else:
             self.install_dir = install_dir
 
+        self.dest_path = dest_path
+
     def cancel(self):
         self._cancelled = True
 
@@ -59,7 +64,7 @@ class YtdlpInstallerWorker(QThread):
             self.progress.emit(0, "Preparing download...")
 
             binary_name = "yt-dlp.exe" if sys.platform == "win32" else "yt-dlp"
-            dest_path = os.path.join(self.install_dir, binary_name)
+            dest_path = self.dest_path or os.path.join(self.install_dir, binary_name)
 
             temp_dir = tempfile.mkdtemp()
             temp_path = os.path.join(temp_dir, binary_name)

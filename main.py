@@ -28,7 +28,7 @@ if __name__ == "__main__":
     # Check for yt-dlp updates
     try:
         from tools.ytdlp_update_checker import check_ytdlp_updates, notify_update_available
-        update_info = check_ytdlp_updates()
+        update_info = check_ytdlp_updates(config.get("ytdlp_path"))
         if update_info:
             notify_update_available(update_info)
     except Exception:
