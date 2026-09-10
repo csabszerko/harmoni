@@ -14,6 +14,8 @@ from gui.views.youtube_view import YouTubeView
 from gui.views.downloads_view import DownloadsView
 from gui.views.settings_view import SettingsView
 from gui.workers.download_queue import DownloadQueue
+from gui.workers.app_update_worker import AppUpdateCheckWorker
+from version import __version__
 
 
 class TitleBar(QWidget):
@@ -56,7 +58,7 @@ class TitleBar(QWidget):
         layout.addWidget(self.title_label)
 
         # Version badge
-        version_label = QLabel("v0.5")
+        version_label = QLabel(f"v{__version__}")
         version_label.setStyleSheet("""
             font-size: 10px;
             font-weight: 600;
@@ -192,6 +194,7 @@ class MainWindow(QMainWindow):
 
         self._setup_ui()
         self._connect_signals()
+        self._check_for_app_update()
 
     def _setup_ui(self):
         """Set up the main UI layout."""
@@ -207,6 +210,10 @@ class MainWindow(QMainWindow):
         # Custom title bar
         self.title_bar = TitleBar(self)
         main_v_layout.addWidget(self.title_bar)
+
+        # Update banner (hidden until a newer release is found)
+        self.update_banner = self._create_update_banner()
+        main_v_layout.addWidget(self.update_banner)
 
         # Content container
         content_widget = QWidget()
@@ -227,6 +234,65 @@ class MainWindow(QMainWindow):
 
         # Status bar
         self._create_status_bar()
+
+    def _create_update_banner(self) -> QFrame:
+        """Create the (initially hidden) 'new version available' banner."""
+        banner = QFrame()
+        banner.setObjectName("updateBanner")
+        banner.setStyleSheet("""
+            #updateBanner {
+                background-color: #2f7d4f;
+            }
+            #updateBanner QLabel {
+                color: white;
+                font-size: 12px;
+            }
+        """)
+        banner.setVisible(False)
+
+        layout = QHBoxLayout(banner)
+        layout.setContentsMargins(16, 8, 12, 8)
+        layout.setSpacing(12)
+
+        self.update_banner_label = QLabel("A new version of HARMONI is available.")
+        layout.addWidget(self.update_banner_label)
+        layout.addStretch()
+
+        download_btn = QPushButton("Download")
+        download_btn.setObjectName("ghost")
+        download_btn.setStyleSheet("color: white; border-color: white;")
+        download_btn.clicked.connect(self._open_update_release_page)
+        layout.addWidget(download_btn)
+
+        dismiss_btn = QPushButton("Dismiss")
+        dismiss_btn.setObjectName("ghost")
+        dismiss_btn.setStyleSheet("color: white; border-color: white;")
+        dismiss_btn.clicked.connect(lambda: banner.setVisible(False))
+        layout.addWidget(dismiss_btn)
+
+        self._update_release_url = None
+        return banner
+
+    def _check_for_app_update(self):
+        """Kick off a background check for a newer HARMONI release."""
+        self.app_update_worker = AppUpdateCheckWorker(self)
+        self.app_update_worker.update_available.connect(self._on_app_update_available)
+        self.app_update_worker.start()
+
+    def _on_app_update_available(self, info: dict):
+        """Show the update banner when a newer release is found."""
+        self._update_release_url = info.get("release_url")
+        self.update_banner_label.setText(
+            f"HARMONI {info.get('latest_version')} is available "
+            f"(you're on {info.get('current_version')})."
+        )
+        self.update_banner.setVisible(True)
+
+    def _open_update_release_page(self):
+        """Open the GitHub release page for the available update."""
+        if self._update_release_url:
+            import webbrowser
+            webbrowser.open(self._update_release_url)
 
     def _create_sidebar(self) -> QListWidget:
         """Create the sidebar navigation."""
