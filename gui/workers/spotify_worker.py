@@ -8,6 +8,19 @@ from spotify_api.client import SpotifyClient
 from spotify_api.token_manager import TokenManager
 
 
+def extract_artist_names(track_obj: dict) -> str:
+    """Join a Spotify track object's artist names into a display string.
+
+    Some Spotify API responses include an artist entry with "name": None
+    (e.g. unavailable/removed artists). Using dict.get("name", "") does not
+    catch that case, since the default only applies when the key is missing,
+    so it must be filtered out explicitly before joining.
+    """
+    names = [a.get("name") or "" for a in track_obj.get("artists", [])]
+    names = [n for n in names if n]
+    return ", ".join(names) if names else "Unknown Artist"
+
+
 class SpotifyWorker(QThread):
     """
     Worker thread for Spotify API operations.
@@ -153,9 +166,8 @@ class SpotifyWorker(QThread):
                 if track_obj.get("is_local") or not track_obj.get("id"):
                     continue
 
-                artists = [a.get("name", "") for a in track_obj.get("artists", [])]
                 track = {
-                    "artist": ", ".join(artists) if artists else "Unknown Artist",
+                    "artist": extract_artist_names(track_obj),
                     "track": track_obj.get("name", "Unknown Track"),
                     "album": track_obj.get("album", {}).get("name", ""),
                     "duration_ms": track_obj.get("duration_ms", 0),
@@ -204,9 +216,8 @@ class SpotifyWorker(QThread):
                 if track_obj.get("is_local") or not track_obj.get("id"):
                     continue
 
-                artists = [a.get("name", "") for a in track_obj.get("artists", [])]
                 track = {
-                    "artist": ", ".join(artists) if artists else "Unknown Artist",
+                    "artist": extract_artist_names(track_obj),
                     "track": track_obj.get("name", "Unknown Track"),
                     "album": track_obj.get("album", {}).get("name", ""),
                     "duration_ms": track_obj.get("duration_ms", 0),
