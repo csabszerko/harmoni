@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Optional
 
 from PySide6.QtCore import QThread, Signal
@@ -36,7 +37,7 @@ class DownloadWorker(QThread):
         self._paused = False
 
     def run(self):
-        """Process all pending downloads in the queue."""
+        """Process pending downloads concurrently, up to the configured limit."""
         from utils.ffmpeg import configure_ffmpeg_path
 
         # Configure FFmpeg path
@@ -53,58 +54,79 @@ class DownloadWorker(QThread):
                 self.track_failed.emit(item.id, str(e))
             return
 
-        success_count = 0
-        fail_count = 0
-
         self.queue.set_running(True)
+        parallel_downloads = self._parallel_downloads()
+        in_flight = {}
 
-        while not self._cancelled:
-            # Check for pause
-            if self._paused:
-                self.msleep(100)
-                continue
+        with ThreadPoolExecutor(max_workers=parallel_downloads) as executor:
+            while not self._cancelled or in_flight:
+                if not self._paused and not self._cancelled:
+                    while len(in_flight) < parallel_downloads:
+                        item = self.queue.get_next_pending()
+                        if not item:
+                            break
+                        self.queue.update_item_status(item.id, DownloadStatus.DOWNLOADING, progress=0)
+                        self.track_started.emit(item.artist, item.track)
+                        in_flight[executor.submit(self._download_single, item)] = item
 
-            # Get next pending item
-            item = self.queue.get_next_pending()
-            if not item:
-                break
+                if not in_flight:
+                    if self._cancelled or not self.queue.has_pending():
+                        break
+                    self.msleep(100)
+                    continue
 
-            # Mark as downloading
-            self.queue.update_item_status(item.id, DownloadStatus.DOWNLOADING, progress=0)
-            self.track_started.emit(item.artist, item.track)
-
-            # Download the track
-            success, file_path, error = self._download_single(item)
-
-            if self._cancelled:
-                self.queue.update_item_status(
-                    item.id,
-                    DownloadStatus.CANCELLED,
-                    error_message="Cancelled by user"
-                )
-                break
-
-            if success:
-                self.queue.update_item_status(
-                    item.id,
-                    DownloadStatus.COMPLETED,
-                    progress=100,
-                    file_path=file_path
-                )
-                self.track_completed.emit(item.id, True, file_path or "")
-                success_count += 1
-            else:
-                self.queue.update_item_status(
-                    item.id,
-                    DownloadStatus.FAILED,
-                    error_message=error
-                )
-                self.track_failed.emit(item.id, error or "Unknown error")
-                fail_count += 1
+                done, _ = wait(in_flight, timeout=0.1, return_when=FIRST_COMPLETED)
+                for future in done:
+                    item = in_flight.pop(future)
+                    try:
+                        success, file_path, error = future.result()
+                    except Exception as exc:
+                        success, file_path, error = False, None, str(exc)
+                    self._record_result(item, success, file_path, error)
 
         self.queue.set_running(False)
         self.queue.mark_queue_completed()
-        self.all_completed.emit(success_count, fail_count)
+        self.all_completed.emit(self.queue.completed_count, self.queue.failed_count)
+
+    def _parallel_downloads(self) -> int:
+        """Return a safe, user-configurable concurrent-download limit."""
+        try:
+            return max(1, int(self.config.get("parallel_downloads", 3)))
+        except (TypeError, ValueError):
+            return 3
+
+    def _record_result(
+        self,
+        item: QueueItem,
+        success: bool,
+        file_path: Optional[str],
+        error: Optional[str],
+    ) -> None:
+        """Apply a completed worker result to the queue on this QThread."""
+        if self._cancelled:
+            self.queue.update_item_status(
+                item.id,
+                DownloadStatus.CANCELLED,
+                error_message="Cancelled by user",
+            )
+            return
+
+        if success:
+            self.queue.update_item_status(
+                item.id,
+                DownloadStatus.COMPLETED,
+                progress=100,
+                file_path=file_path,
+            )
+            self.track_completed.emit(item.id, True, file_path or "")
+            return
+
+        self.queue.update_item_status(
+            item.id,
+            DownloadStatus.FAILED,
+            error_message=error,
+        )
+        self.track_failed.emit(item.id, error or "Unknown error")
 
     def _download_single(self, item: QueueItem) -> tuple[bool, Optional[str], Optional[str]]:
         """
@@ -113,7 +135,7 @@ class DownloadWorker(QThread):
         Returns:
             Tuple of (success, file_path, error_message)
         """
-        output_dir = self.config.get("output_dir", "music")
+        output_dir = item.output_dir or self.config.get("output_dir", "music")
         audio_format = self.config.get("audio_format", "mp3")
 
         # Handle relative paths - make absolute from project root
@@ -134,8 +156,15 @@ class DownloadWorker(QThread):
         query = f"{item.artist} - {item.track}"
         filename = query.replace("/", "-").replace("\\", "-")
 
+        # A previous run may already have produced this track. Do not invoke
+        # yt-dlp again when the expected named audio file is present.
+        for ext in (audio_format, "mp3", "m4a", "opus", "webm", "flac", "aac", "ogg", "wav"):
+            existing_path = os.path.join(output_dir, f"{filename}.{ext}")
+            if os.path.isfile(existing_path):
+                return True, existing_path, None
+
         cmd = [
-            "yt-dlp",
+            self.config.get("ytdlp_path") or "yt-dlp",
             f"ytsearch1:{query}",
             "-x",
             "--audio-format", audio_format,
@@ -191,18 +220,18 @@ class DownloadWorker(QThread):
         try:
             from downloader.metadata import embed_track_metadata
 
-            track_data = {
-                "artist": item.artist,
-                "track": item.track
-            }
-            template = self.config.get("metadata_template", "basic")
+            track_data = {"artist": item.artist, "track": item.track, **item.metadata}
+            # The reduced app always writes the useful library fields, rather than
+            # exposing a template choice that most people should not need.
+            template = "comprehensive"
             enable_musicbrainz = self.config.get("enable_musicbrainz_lookup", True)
 
             embed_track_metadata(
                 file_path,
                 track_data,
                 template=template,
-                allow_musicbrainz=enable_musicbrainz
+                allow_musicbrainz=enable_musicbrainz,
+                config=self.config,
             )
         except ImportError:
             pass

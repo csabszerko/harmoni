@@ -7,7 +7,7 @@ if THIS_DIR not in os.sys.path:
     os.sys.path.insert(0, THIS_DIR)
     os.sys.path.insert(0, os.path.dirname(THIS_DIR))
 
-from utils.loaders import parse_exportify_csv_for_queue, load_exportify_tracks
+from utils.loaders import parse_exportify_csv_for_queue
 
 EXPORTIFY_HEADER = "Track URI,Track Name,Artist Name(s),Album Name,Playlist Name\n"
 EXPORTIFY_ROW = 'spotify:track:1,Song One,Artist A;Artist B,Album X,My Playlist\n'
@@ -72,18 +72,6 @@ class TestParseExportifyCsvForQueue(unittest.TestCase):
             tracks = parse_exportify_csv_for_queue(path)
 
             self.assertEqual(tracks[0]["playlist"], "My Cool Mix")
-
-
-class TestLoadExportifyTracksStillWorks(unittest.TestCase):
-    def test_existing_loader_unaffected_by_change(self):
-        with tempfile.TemporaryDirectory() as td:
-            path = os.path.join(td, "playlist.csv")
-            _write_csv(path, EXPORTIFY_HEADER + EXPORTIFY_ROW, encoding="utf-8-sig")
-
-            tracks = load_exportify_tracks(path)
-
-            self.assertEqual(len(tracks), 1)
-            self.assertEqual(tracks[0]["artist"], "Artist A, Artist B")
 
 
 if __name__ == "__main__":

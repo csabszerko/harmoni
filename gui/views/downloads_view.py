@@ -1,5 +1,9 @@
 """Downloads view showing the download queue and progress."""
 
+import os
+import subprocess
+import sys
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QTableWidget, QTableWidgetItem,
@@ -7,7 +11,8 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QFrame, QSpacerItem, QSizePolicy
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QDesktopServices
+from PySide6.QtCore import QUrl
 
 from gui.workers.download_queue import DownloadQueue, DownloadStatus
 from gui.workers.download_worker import DownloadWorker
@@ -72,7 +77,7 @@ class DownloadsView(QWidget):
         title.setObjectName("title")
         title_section.addWidget(title)
 
-        subtitle = QLabel("Manage and monitor your music downloads")
+        subtitle = QLabel("Double-click a completed file to reveal it in Finder")
         subtitle.setObjectName("subtitle")
         title_section.addWidget(subtitle)
 
@@ -83,13 +88,13 @@ class DownloadsView(QWidget):
         stats_layout = QHBoxLayout()
         stats_layout.setSpacing(12)
 
-        self.pending_card = StatCard("0", "PENDING", "#3c92de")
+        self.pending_card = StatCard("0", "PENDING", "#C9C9D0")
         stats_layout.addWidget(self.pending_card)
 
-        self.completed_card = StatCard("0", "COMPLETED", "#4caf50")
+        self.completed_card = StatCard("0", "COMPLETED", "#B8D5C0")
         stats_layout.addWidget(self.completed_card)
 
-        self.failed_card = StatCard("0", "FAILED", "#ef5350")
+        self.failed_card = StatCard("0", "FAILED", "#E0ABAB")
         stats_layout.addWidget(self.failed_card)
 
         header.addLayout(stats_layout)
@@ -157,6 +162,7 @@ class DownloadsView(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(False)
+        self.table.itemDoubleClicked.connect(self._reveal_completed_file)
 
         layout.addWidget(self.table, 1)
 
@@ -180,7 +186,7 @@ class DownloadsView(QWidget):
         progress_layout.addWidget(self.overall_progress, 1)
 
         self.progress_text = QLabel("0%")
-        self.progress_text.setStyleSheet("font-weight: 600; color: #3c92de; background: transparent;")
+        self.progress_text.setStyleSheet("font-weight: 600; color: #D6D6DC; background: transparent;")
         progress_layout.addWidget(self.progress_text)
 
         layout.addWidget(progress_frame)
@@ -223,13 +229,13 @@ class DownloadsView(QWidget):
                 status_item.setText(item.status.value.title())
 
                 if item.status == DownloadStatus.COMPLETED:
-                    status_item.setForeground(QColor("#4caf50"))
+                    status_item.setForeground(QColor("#B8D5C0"))
                 elif item.status == DownloadStatus.FAILED:
-                    status_item.setForeground(QColor("#ef5350"))
+                    status_item.setForeground(QColor("#E0ABAB"))
                 elif item.status == DownloadStatus.DOWNLOADING:
-                    status_item.setForeground(QColor("#3c92de"))
+                    status_item.setForeground(QColor("#D6D6DC"))
                 else:
-                    status_item.setForeground(QColor("#9a9ab0"))
+                    status_item.setForeground(QColor("#A4A4AC"))
 
                 progress = self.table.cellWidget(row, 4)
                 if progress:
@@ -243,6 +249,21 @@ class DownloadsView(QWidget):
             if self.table.item(row, 0).data(Qt.UserRole) == item_id:
                 self.table.removeRow(row)
                 break
+
+    def _reveal_completed_file(self, table_item: QTableWidgetItem):
+        """Reveal a completed download in the platform file manager."""
+        row = table_item.row()
+        id_item = self.table.item(row, 0)
+        queue_item = self.queue.get_item(id_item.data(Qt.UserRole)) if id_item else None
+        file_path = queue_item.file_path if queue_item else None
+
+        if not file_path or not os.path.exists(file_path):
+            return
+
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", file_path])
+        else:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(file_path)))
 
     def _update_stats(self, pending: int):
         self.pending_card.set_value(str(pending))

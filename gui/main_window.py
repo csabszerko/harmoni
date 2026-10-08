@@ -1,451 +1,121 @@
-"""Main window with custom title bar and sidebar navigation for HARMONI GUI."""
+"""The small, task-focused application shell."""
 
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QListWidget, QListWidgetItem, QStackedWidget,
-    QStatusBar, QLabel, QFrame, QPushButton
+    QFrame, QHBoxLayout, QLabel, QMainWindow, QPushButton, QStackedWidget,
+    QVBoxLayout, QWidget,
 )
-from PySide6.QtCore import Qt, QSize, QPoint
-from PySide6.QtGui import QIcon, QMouseEvent
 
-from gui.views.welcome_view import WelcomeView
-from gui.views.spotify_view import SpotifyView
-from gui.views.youtube_view import YouTubeView
+from gui.views.download_settings_view import DownloadSettingsView
 from gui.views.downloads_view import DownloadsView
-from gui.views.settings_view import SettingsView
+from gui.views.welcome_view import WelcomeView
 from gui.workers.download_queue import DownloadQueue
-from gui.workers.app_update_worker import AppUpdateCheckWorker
-from version import __version__
 
 
-class TitleBar(QWidget):
-    """Custom title bar widget for frameless window."""
+class NavigationButton(QPushButton):
+    """A sidebar item that carries the destination view index."""
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.parent_window = parent
-        self._drag_pos = None
-        self._is_maximized = False
-        self.setObjectName("titleBar")
-        self.setFixedHeight(40)
-        self._setup_ui()
-
-    def _setup_ui(self):
-        """Set up the title bar UI."""
-        from gui.resources.icons import get_app_icon, has_icon
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 0, 0, 0)
-        layout.setSpacing(8)
-
-        # App icon
-        app_icon = get_app_icon()
-        if not app_icon.isNull():
-            icon_label = QLabel()
-            icon_label.setPixmap(app_icon.pixmap(20, 20))
-            icon_label.setFixedSize(24, 24)
-            icon_label.setStyleSheet("background: transparent;")
-            layout.addWidget(icon_label)
-
-        # App name with version badge
-        self.title_label = QLabel("HARMONI")
-        self.title_label.setStyleSheet("""
-            font-size: 15px;
-            font-weight: 700;
-            color: #e3e4e0;
-            letter-spacing: 1px;
-        """)
-        layout.addWidget(self.title_label)
-
-        # Version badge
-        version_label = QLabel(f"v{__version__}")
-        version_label.setStyleSheet("""
-            font-size: 10px;
-            font-weight: 600;
-            color: #9a9ab0;
-            background-color: #383852;
-            padding: 2px 6px;
-            border-radius: 4px;
-        """)
-        layout.addWidget(version_label)
-
-        layout.addStretch()
-
-        # Window control buttons - using simple ASCII for reliability
-        self.min_btn = QPushButton()
-        self.min_btn.setText("-")
-        self.min_btn.setObjectName("titleBarBtn")
-        self.min_btn.setFixedSize(46, 40)
-        self.min_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 18px;
-                font-weight: 400;
-                border: none;
-                background: transparent;
-                color: #9a9ab0;
-            }
-            QPushButton:hover {
-                background-color: #383852;
-                color: #e3e4e0;
-            }
-        """)
-        self.min_btn.clicked.connect(self._minimize)
-        layout.addWidget(self.min_btn)
-
-        self.max_btn = QPushButton()
-        self.max_btn.setText("[ ]")
-        self.max_btn.setObjectName("titleBarBtn")
-        self.max_btn.setFixedSize(46, 40)
-        self.max_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 11px;
-                font-weight: 600;
-                border: none;
-                background: transparent;
-                color: #9a9ab0;
-            }
-            QPushButton:hover {
-                background-color: #383852;
-                color: #e3e4e0;
-            }
-        """)
-        self.max_btn.clicked.connect(self._toggle_maximize)
-        layout.addWidget(self.max_btn)
-
-        self.close_btn = QPushButton()
-        self.close_btn.setText("X")
-        self.close_btn.setObjectName("closeBtn")
-        self.close_btn.setFixedSize(46, 40)
-        self.close_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 13px;
-                font-weight: 700;
-                border: none;
-                background: transparent;
-                color: #9a9ab0;
-            }
-            QPushButton:hover {
-                background-color: #ef5350;
-                color: white;
-            }
-        """)
-        self.close_btn.clicked.connect(self._close)
-        layout.addWidget(self.close_btn)
-
-    def _minimize(self):
-        """Minimize the window."""
-        if self.parent_window:
-            self.parent_window.showMinimized()
-
-    def _toggle_maximize(self):
-        """Toggle maximize/restore."""
-        if self.parent_window:
-            if self._is_maximized:
-                self.parent_window.showNormal()
-                self.max_btn.setText("[ ]")
-            else:
-                self.parent_window.showMaximized()
-                self.max_btn.setText("[=]")
-            self._is_maximized = not self._is_maximized
-
-    def _close(self):
-        """Close the window."""
-        if self.parent_window:
-            self.parent_window.close()
-
-    def mousePressEvent(self, event: QMouseEvent):
-        """Handle mouse press for dragging."""
-        if event.button() == Qt.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.parent_window.frameGeometry().topLeft()
-            event.accept()
-
-    def mouseMoveEvent(self, event: QMouseEvent):
-        """Handle mouse move for dragging."""
-        if event.buttons() == Qt.LeftButton and self._drag_pos:
-            # If maximized, restore before dragging
-            if self._is_maximized:
-                self._toggle_maximize()
-                # Adjust drag position for restored window
-                self._drag_pos = QPoint(self.parent_window.width() // 2, 18)
-            self.parent_window.move(event.globalPosition().toPoint() - self._drag_pos)
-            event.accept()
-
-    def mouseDoubleClickEvent(self, event: QMouseEvent):
-        """Handle double click for maximize toggle."""
-        if event.button() == Qt.LeftButton:
-            self._toggle_maximize()
+    def __init__(self, label: str, index: int, parent=None):
+        super().__init__(label, parent)
+        self.index = index
+        self.setCheckable(True)
+        self.setObjectName("navigation")
 
 
 class MainWindow(QMainWindow):
-    """Main application window with custom title bar and sidebar navigation."""
+    """A concise shell for import, queue, and download preferences."""
 
     def __init__(self, config: dict):
         super().__init__()
         self.config = config
         self.download_queue = DownloadQueue()
+        self.navigation_buttons: list[NavigationButton] = []
 
-        # Frameless window with custom styling
-        self.setWindowFlags(Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground, False)
-
-        self.setWindowTitle("HARMONI")
-        self.setMinimumSize(600, 400)
-        self.resize(1200, 700)
-
+        self.setWindowTitle("Harmoni")
+        self.setMinimumSize(900, 620)
+        self.resize(1180, 760)
         self._setup_ui()
         self._connect_signals()
-        self._check_for_app_update()
+        self._set_current_view(0)
 
-    def _setup_ui(self):
-        """Set up the main UI layout."""
-        # Central widget
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
+    def _setup_ui(self) -> None:
+        root = QWidget()
+        root.setObjectName("appRoot")
+        self.setCentralWidget(root)
+        layout = QHBoxLayout(root)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # Main vertical layout (title bar + content)
-        main_v_layout = QVBoxLayout(central_widget)
-        main_v_layout.setContentsMargins(0, 0, 0, 0)
-        main_v_layout.setSpacing(0)
-
-        # Custom title bar
-        self.title_bar = TitleBar(self)
-        main_v_layout.addWidget(self.title_bar)
-
-        # Update banner (hidden until a newer release is found)
-        self.update_banner = self._create_update_banner()
-        main_v_layout.addWidget(self.update_banner)
-
-        # Content container
-        content_widget = QWidget()
-        content_layout = QHBoxLayout(content_widget)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(0)
-
-        # Sidebar
-        self.sidebar = self._create_sidebar()
-        content_layout.addWidget(self.sidebar)
-
-        # Content area with stacked widget
-        self.view_stack = QStackedWidget()
-        self._create_views()
-        content_layout.addWidget(self.view_stack, 1)
-
-        main_v_layout.addWidget(content_widget, 1)
-
-        # Status bar
-        self._create_status_bar()
-
-    def _create_update_banner(self) -> QFrame:
-        """Create the (initially hidden) 'new version available' banner."""
-        banner = QFrame()
-        banner.setObjectName("updateBanner")
-        banner.setStyleSheet("""
-            #updateBanner {
-                background-color: #2f7d4f;
-            }
-            #updateBanner QLabel {
-                color: white;
-                font-size: 12px;
-            }
-        """)
-        banner.setVisible(False)
-
-        layout = QHBoxLayout(banner)
-        layout.setContentsMargins(16, 8, 12, 8)
-        layout.setSpacing(12)
-
-        self.update_banner_label = QLabel("A new version of HARMONI is available.")
-        layout.addWidget(self.update_banner_label)
-        layout.addStretch()
-
-        download_btn = QPushButton("Download")
-        download_btn.setObjectName("ghost")
-        download_btn.setStyleSheet("color: white; border-color: white;")
-        download_btn.clicked.connect(self._open_update_release_page)
-        layout.addWidget(download_btn)
-
-        dismiss_btn = QPushButton("Dismiss")
-        dismiss_btn.setObjectName("ghost")
-        dismiss_btn.setStyleSheet("color: white; border-color: white;")
-        dismiss_btn.clicked.connect(lambda: banner.setVisible(False))
-        layout.addWidget(dismiss_btn)
-
-        self._update_release_url = None
-        return banner
-
-    def _check_for_app_update(self):
-        """Kick off a background check for a newer HARMONI release."""
-        self.app_update_worker = AppUpdateCheckWorker(self)
-        self.app_update_worker.update_available.connect(self._on_app_update_available)
-        self.app_update_worker.start()
-
-    def _on_app_update_available(self, info: dict):
-        """Show the update banner when a newer release is found."""
-        self._update_release_url = info.get("release_url")
-        self.update_banner_label.setText(
-            f"HARMONI {info.get('latest_version')} is available "
-            f"(you're on {info.get('current_version')})."
-        )
-        self.update_banner.setVisible(True)
-
-    def _open_update_release_page(self):
-        """Open the GitHub release page for the available update."""
-        if self._update_release_url:
-            import webbrowser
-            webbrowser.open(self._update_release_url)
-
-    def _create_sidebar(self) -> QListWidget:
-        """Create the sidebar navigation."""
-        sidebar = QListWidget()
+        sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(180)
-        sidebar.setIconSize(QSize(20, 20))
+        sidebar.setFixedWidth(236)
+        self.sidebar_layout = QVBoxLayout(sidebar)
+        self.sidebar_layout.setContentsMargins(18, 28, 18, 20)
+        self.sidebar_layout.setSpacing(8)
 
-        # Navigation items - clean text labels without emojis
-        nav_items = [
-            "Home",
-            "Spotify",
-            "YouTube",
-            "Downloads",
-            "Settings",
-        ]
+        brand = QLabel("Harmoni")
+        brand.setObjectName("brand")
+        self.sidebar_layout.addWidget(brand)
+        tagline = QLabel("Your music, organized.")
+        tagline.setObjectName("brandTagline")
+        self.sidebar_layout.addWidget(tagline)
+        self.sidebar_layout.addSpacing(32)
 
-        for label in nav_items:
-            item = QListWidgetItem(label)
-            item.setSizeHint(QSize(160, 48))
-            sidebar.addItem(item)
+        self._add_navigation_button("Import playlist", 0)
+        self.queue_button = self._add_navigation_button("Download queue", 1)
+        self._add_navigation_button("Settings", 2)
+        self.sidebar_layout.addStretch()
 
-        # Select first item by default
-        sidebar.setCurrentRow(0)
+        self.queue_summary = QLabel("Queue is empty")
+        self.queue_summary.setObjectName("queueSummary")
+        self.queue_summary.setWordWrap(True)
+        self.sidebar_layout.addWidget(self.queue_summary)
+        layout.addWidget(sidebar)
 
-        return sidebar
-
-    def _create_views(self):
-        """Create and add all views to the stack."""
-        # Create views
+        self.view_stack = QStackedWidget()
         self.welcome_view = WelcomeView(self.config, self.download_queue)
-        self.spotify_view = SpotifyView(self.config, self.download_queue)
-        self.youtube_view = YouTubeView(self.config, self.download_queue)
         self.downloads_view = DownloadsView(self.config, self.download_queue)
-        self.settings_view = SettingsView(self.config)
-
-        # Add views to stack (order matches sidebar)
+        self.settings_view = DownloadSettingsView(self.config)
         self.view_stack.addWidget(self.welcome_view)
-        self.view_stack.addWidget(self.spotify_view)
-        self.view_stack.addWidget(self.youtube_view)
         self.view_stack.addWidget(self.downloads_view)
         self.view_stack.addWidget(self.settings_view)
+        layout.addWidget(self.view_stack, 1)
 
-    def _create_status_bar(self):
-        """Create the status bar."""
-        status_bar = QStatusBar()
-        self.setStatusBar(status_bar)
+    def _add_navigation_button(self, label: str, index: int) -> NavigationButton:
+        button = NavigationButton(label, index, self)
+        button.clicked.connect(lambda: self._set_current_view(index))
+        self.navigation_buttons.append(button)
+        self.sidebar_layout.addWidget(button)
+        return button
 
-        # Status label
-        self.status_label = QLabel("Ready")
-        status_bar.addWidget(self.status_label)
-
-        # Spacer
-        spacer = QWidget()
-        spacer.setFixedWidth(20)
-        status_bar.addWidget(spacer)
-
-        import_btn = QPushButton("Import CSV")
-        import_btn.setObjectName("ghost")
-        import_btn.setStyleSheet("font-size: 11px; padding: 2px 8px; min-width: 0;")
-        import_btn.clicked.connect(self._quick_import_csv)
-        status_bar.addPermanentWidget(import_btn)
-
-        exportify_btn = QPushButton("Exportify")
-        exportify_btn.setObjectName("ghost")
-        exportify_btn.setStyleSheet("font-size: 11px; padding: 2px 8px; min-width: 0;")
-        exportify_btn.clicked.connect(self._open_exportify)
-        status_bar.addPermanentWidget(exportify_btn)
-
-        # Download count
-        self.download_count_label = QLabel("Queue: 0")
-        status_bar.addPermanentWidget(self.download_count_label)
-
-        # Spotify status
-        self.spotify_status_label = QLabel("Spotify: Not connected")
-        status_bar.addPermanentWidget(self.spotify_status_label)
-
-    def _connect_signals(self):
-        """Connect signals and slots."""
-        # Sidebar navigation
-        self.sidebar.currentRowChanged.connect(self._on_nav_changed)
-
-        # Download queue updates
-        self.download_queue.queue_updated.connect(self._update_download_count)
-
-        # Settings changes
+    def _connect_signals(self) -> None:
+        self.download_queue.queue_updated.connect(self._update_queue_summary)
+        self.welcome_view.navigate_to.connect(self._navigate_to_view)
         self.settings_view.config_saved.connect(self._on_config_saved)
 
-        # Spotify connection status
-        self.spotify_view.connection_changed.connect(self._update_spotify_status)
-
-        # Welcome view navigation
-        self.welcome_view.navigate_to.connect(self._navigate_to_view)
-
-    def _on_nav_changed(self, index: int):
-        """Handle sidebar navigation change."""
+    def _set_current_view(self, index: int) -> None:
         self.view_stack.setCurrentIndex(index)
+        for button in self.navigation_buttons:
+            button.setChecked(button.index == index)
 
-    def _navigate_to_view(self, view_name: str):
-        """Navigate to a specific view by name."""
-        view_map = {
-            "welcome": 0,
-            "spotify": 1,
-            "youtube": 2,
-            "downloads": 3,
-            "settings": 4,
-        }
-        if view_name in view_map:
-            self.sidebar.setCurrentRow(view_map[view_name])
+    def _navigate_to_view(self, name: str) -> None:
+        destinations = {"import": 0, "downloads": 1, "settings": 2}
+        if name in destinations:
+            self._set_current_view(destinations[name])
 
-    def _update_download_count(self, count: int):
-        """Update the download count in status bar."""
-        self.download_count_label.setText(f"Queue: {count}")
-
-    def _update_spotify_status(self, connected: bool):
-        """Update Spotify connection status."""
-        if connected:
-            self.spotify_status_label.setText("Spotify: Connected")
-            self.spotify_status_label.setStyleSheet("color: #4caf50;")
+    def _update_queue_summary(self, pending: int) -> None:
+        total = len(self.download_queue.items)
+        if not total:
+            self.queue_summary.setText("Queue is empty")
+        elif pending:
+            self.queue_summary.setText(f"{pending} track{'s' if pending != 1 else ''} ready to download")
         else:
-            self.spotify_status_label.setText("Spotify: Not connected")
-            self.spotify_status_label.setStyleSheet("")
+            self.queue_summary.setText("All queued tracks are finished")
+        self.queue_button.setText(f"Download queue{f'  {pending}' if pending else ''}")
 
-    def _on_config_saved(self):
-        """Handle config save from settings."""
-        # Reload config from file
-        from config import load_config
-        try:
-            self.config = load_config()
-            # Update all views with the new config
-            self.spotify_view.config = self.config
-            self.youtube_view.config = self.config
-            self.downloads_view.config = self.config
-            self.welcome_view.config = self.config
-            self.settings_view.config = self.config
-            self.status_label.setText("Settings saved successfully")
-        except Exception as e:
-            self.status_label.setText(f"Error reloading config: {e}")
-
-    def _quick_import_csv(self):
-        from PySide6.QtWidgets import QFileDialog
-        files, _ = QFileDialog.getOpenFileNames(self, "Import Exportify CSV", "", "CSV Files (*.csv)")
-        if files:
-            self.welcome_view._handle_dropped_files(files)
-
-    def _open_exportify(self):
-        import webbrowser
-        webbrowser.open("https://exportify.net")
-
-    def set_status(self, message: str):
-        """Set status bar message."""
-        self.status_label.setText(message)
+    def _on_config_saved(self) -> None:
+        self.config = self.settings_view.config
+        self.welcome_view.config = self.config
+        self.downloads_view.config = self.config
 
     def get_download_queue(self) -> DownloadQueue:
-        """Get the download queue instance."""
         return self.download_queue

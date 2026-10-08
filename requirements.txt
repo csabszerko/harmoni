@@ -1,10 +1,3 @@
-psutil
-colorama
 yt-dlp
 mutagen
-schedule
-questionary
-tqdm
-httpx
 PySide6
-pyinstaller

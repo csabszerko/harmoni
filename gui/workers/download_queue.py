@@ -1,8 +1,9 @@
 """Download queue manager with Qt signals for GUI updates."""
 
+import os
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 import uuid
 
 from PySide6.QtCore import QObject, Signal
@@ -24,10 +25,12 @@ class QueueItem:
     artist: str
     track: str
     playlist: Optional[str] = None
+    output_dir: Optional[str] = None
     status: DownloadStatus = DownloadStatus.PENDING
     progress: int = 0  # 0-100
     error_message: Optional[str] = None
     file_path: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class DownloadQueue(QObject):
@@ -94,24 +97,52 @@ class DownloadQueue(QObject):
         """Check if downloads are paused."""
         return self._is_paused
 
-    def add_track(self, artist: str, track: str, playlist: Optional[str] = None) -> QueueItem:
-        """Add a single track to the queue."""
+    @staticmethod
+    def _duplicate_key(artist: str, track: str, output_dir: Optional[str]) -> tuple[str, str, str]:
+        """Normalize the fields that identify a download within one folder."""
+        normalize = lambda value: " ".join((value or "").casefold().split())
+        return normalize(artist), normalize(track), os.path.normcase(os.path.abspath(output_dir or ""))
+
+    def add_track(
+        self,
+        artist: str,
+        track: str,
+        playlist: Optional[str] = None,
+        output_dir: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> Optional[QueueItem]:
+        """Add a track unless it is already queued for the same destination."""
+        key = self._duplicate_key(artist, track, output_dir)
+        if any(self._duplicate_key(item.artist, item.track, item.output_dir) == key for item in self._items):
+            return None
+
         item = QueueItem(
             id=str(uuid.uuid4()),
             artist=artist,
             track=track,
             playlist=playlist,
+            output_dir=output_dir,
             status=DownloadStatus.PENDING,
-            progress=0
+            progress=0,
+            metadata=metadata or {},
         )
         self._items.append(item)
         self.item_added.emit(item)
         self.queue_updated.emit(self.pending_count)
         return item
 
-    def add_item(self, artist: str, track: str, album: str = "", playlist: str = "") -> QueueItem:
+    def add_item(
+        self,
+        artist: str,
+        track: str,
+        album: str = "",
+        playlist: str = "",
+        output_dir: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> Optional[QueueItem]:
         """Add a single item to the queue (alias for add_track with album support)."""
-        return self.add_track(artist, track, playlist or None)
+        item_metadata = {"artist": artist, "track": track, "album": album, **(metadata or {})}
+        return self.add_track(artist, track, playlist or None, output_dir, item_metadata)
 
     def add_tracks(self, tracks: list, playlist: Optional[str] = None) -> List[QueueItem]:
         """

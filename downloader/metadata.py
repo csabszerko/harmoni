@@ -1,5 +1,6 @@
 import os
 import json
+import ssl
 import time 
 import urllib.parse 
 import urllib.request 
@@ -106,6 +107,7 @@ def normalize_track_metadata(track: Dict[str, Any]) -> Dict[str, Any]:
     """
     # Handle both JSON format (artist, track) and CSV format (Artist Name(s), Track Name)
     artist_raw = _as_str(
+        track.get("tag_artists") or
         track.get("artist") or 
         track.get("Artist Name(s)") or 
         track.get("Artist")
@@ -150,7 +152,7 @@ def normalize_track_metadata(track: Dict[str, Any]) -> Dict[str, Any]:
     # Create a compact, useful comment that carries provenance.
     comment_parts = []
     if uri:
-        comment_parts.append(f"spotify_uri={uri}")
+        comment_parts.append(f"source_uri={uri}")
     if _as_str(track.get("record_label") or track.get("Record Label")):
         comment_parts.append(f"label={_as_str(track.get('record_label') or track.get('Record Label'))}")
     if _as_str(track.get("key") or track.get("Key")):
@@ -286,6 +288,13 @@ class MusicBrainzMatch:
 
 
 _last_mb_request_at = 0.0
+_musicbrainz_disabled_for_session = False
+
+
+def _is_certificate_error(error: BaseException) -> bool:
+    """Return whether a network error is a non-transient TLS trust failure."""
+    reason = getattr(error, "reason", error)
+    return isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason)
 
 
 def _mb_get_json(url: str, timeout: int = 15, max_retries: int = 3, base_delay: float = 0.75) -> Optional[Dict[str, Any]]:
@@ -300,7 +309,9 @@ def _mb_get_json(url: str, timeout: int = 15, max_retries: int = 3, base_delay: 
     Returns:
         Parsed JSON data or None if all attempts fail
     """
-    global _last_mb_request_at
+    global _last_mb_request_at, _musicbrainz_disabled_for_session
+    if _musicbrainz_disabled_for_session:
+        return None
     last_error = None
     
     for attempt in range(max_retries + 1):
@@ -331,6 +342,17 @@ def _mb_get_json(url: str, timeout: int = 15, max_retries: int = 3, base_delay: 
         except (urllib.error.URLError, socket.error, ConnectionResetError) as e:
             last_error = e
             error_type = type(e).__name__
+
+            # Certificate verification is a local trust-store/configuration
+            # problem, not a transient MusicBrainz outage. Retrying it delays
+            # every track and produces the same warning repeatedly.
+            if _is_certificate_error(e):
+                _musicbrainz_disabled_for_session = True
+                log_warning(
+                    "MusicBrainz lookup disabled for this session because TLS certificate "
+                    "verification failed. Basic metadata tagging will continue."
+                )
+                break
             
             # Log detailed information about the failure
             if attempt < max_retries:
@@ -868,9 +890,9 @@ def embed_track_metadata(
         if cover_bytes:
             log_info(f"  Found local album art ({len(cover_bytes)} bytes)")
         
-        # If no local file, try downloading from Spotify
+        # If no local file, use the artwork URL supplied by the import.
         if not cover_bytes and meta.get("album_art_url"):
-            log_info(f"  Downloading album art from Spotify...")
+            log_info("  Downloading album art from the import...")
             cover_bytes = _download_album_art(meta.get("album_art_url"))
             if cover_bytes:
                 log_info(f"  Downloaded album art ({len(cover_bytes)} bytes)")
