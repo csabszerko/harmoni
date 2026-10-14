@@ -206,7 +206,7 @@ class DownloadsView(QWidget):
         artist_item.setData(Qt.UserRole, item.id)
         self.table.setItem(row, 0, artist_item)
 
-        self.table.setItem(row, 1, QTableWidgetItem(item.track))
+        self.table.setCellWidget(row, 1, self._track_cell(item))
         self.table.setItem(row, 2, QTableWidgetItem(item.playlist or "—"))
 
         status_item = QTableWidgetItem(item.status.value.title())
@@ -219,6 +219,7 @@ class DownloadsView(QWidget):
         progress.setTextVisible(False)
         progress.setFixedHeight(6)
         self.table.setCellWidget(row, 4, progress)
+        self._resize_track_row(row)
 
         self._update_stats(self.queue.pending_count)
 
@@ -227,6 +228,13 @@ class DownloadsView(QWidget):
             if self.table.item(row, 0).data(Qt.UserRole) == item.id:
                 status_item = self.table.item(row, 3)
                 status_item.setText(item.status.value.title())
+
+                track_cell = self.table.cellWidget(row, 1)
+                source_label = track_cell.findChild(QLabel, "youtubeSourceTitle") if track_cell else None
+                if source_label:
+                    source_label.setText(item.source_title or "")
+                    source_label.setVisible(bool(item.source_title))
+                    self._resize_track_row(row)
 
                 if item.status == DownloadStatus.COMPLETED:
                     status_item.setForeground(QColor("#B8D5C0"))
@@ -243,6 +251,35 @@ class DownloadsView(QWidget):
                 break
 
         self._update_overall_progress()
+
+    @staticmethod
+    def _track_cell(item) -> QWidget:
+        """Render the Spotify name with the selected YouTube title beneath it."""
+        cell = QWidget()
+        layout = QVBoxLayout(cell)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(2)
+
+        spotify_title = QLabel(item.track)
+        layout.addWidget(spotify_title)
+
+        source_title = QLabel(item.source_title or "")
+        source_title.setObjectName("youtubeSourceTitle")
+        source_title.setStyleSheet("color: #A4A4AC; font-size: 11px; background: transparent;")
+        source_title.setVisible(bool(item.source_title))
+        source_title.setWordWrap(True)
+        layout.addWidget(source_title)
+        return cell
+
+    def _resize_track_row(self, row: int) -> None:
+        """Fit the embedded two-line title widget; Qt ignores it when auto-sizing rows."""
+        track_cell = self.table.cellWidget(row, 1)
+        if track_cell:
+            track_cell.adjustSize()
+            self.table.setRowHeight(
+                row,
+                max(self.table.verticalHeader().defaultSectionSize(), track_cell.sizeHint().height()),
+            )
 
     def _on_item_removed(self, item_id: str):
         for row in range(self.table.rowCount()):

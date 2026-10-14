@@ -2,6 +2,8 @@
   "output_dir": "music",
   "audio_format": "mp3",
   "parallel_downloads": 3,
+  "video_search_result_limit": 5,
+  "video_duration_tolerance_seconds": 15,
   "enable_metadata_embedding": true,
   "enable_musicbrainz_lookup": true,
   "ytdlp_path": "",

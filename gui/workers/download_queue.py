@@ -30,6 +30,7 @@ class QueueItem:
     progress: int = 0  # 0-100
     error_message: Optional[str] = None
     file_path: Optional[str] = None
+    source_title: Optional[str] = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -186,6 +187,13 @@ class DownloadQueue(QObject):
                 item.file_path = file_path
             self.item_updated.emit(item)
             self.queue_updated.emit(self.pending_count)
+
+    def update_item_source_title(self, item_id: str, source_title: str) -> None:
+        """Record the title reported by the selected YouTube video."""
+        item = self.get_item(item_id)
+        if item:
+            item.source_title = source_title or None
+            self.item_updated.emit(item)
 
     def remove_item(self, item_id: str):
         """Remove an item from the queue."""

@@ -1,6 +1,7 @@
 """Download worker thread for GUI."""
 
 import os
+import json
 import subprocess
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Optional
@@ -79,10 +80,10 @@ class DownloadWorker(QThread):
                 for future in done:
                     item = in_flight.pop(future)
                     try:
-                        success, file_path, error = future.result()
+                        success, file_path, error, source_title = future.result()
                     except Exception as exc:
-                        success, file_path, error = False, None, str(exc)
-                    self._record_result(item, success, file_path, error)
+                        success, file_path, error, source_title = False, None, str(exc), None
+                    self._record_result(item, success, file_path, error, source_title)
 
         self.queue.set_running(False)
         self.queue.mark_queue_completed()
@@ -101,6 +102,7 @@ class DownloadWorker(QThread):
         success: bool,
         file_path: Optional[str],
         error: Optional[str],
+        source_title: Optional[str],
     ) -> None:
         """Apply a completed worker result to the queue on this QThread."""
         if self._cancelled:
@@ -112,6 +114,8 @@ class DownloadWorker(QThread):
             return
 
         if success:
+            if source_title:
+                self.queue.update_item_source_title(item.id, source_title)
             self.queue.update_item_status(
                 item.id,
                 DownloadStatus.COMPLETED,
@@ -128,12 +132,12 @@ class DownloadWorker(QThread):
         )
         self.track_failed.emit(item.id, error or "Unknown error")
 
-    def _download_single(self, item: QueueItem) -> tuple[bool, Optional[str], Optional[str]]:
+    def _download_single(self, item: QueueItem) -> tuple[bool, Optional[str], Optional[str], Optional[str]]:
         """
         Download a single track.
 
         Returns:
-            Tuple of (success, file_path, error_message)
+            Tuple of (success, file_path, error_message, source_title)
         """
         output_dir = item.output_dir or self.config.get("output_dir", "music")
         audio_format = self.config.get("audio_format", "mp3")
@@ -161,11 +165,20 @@ class DownloadWorker(QThread):
         for ext in (audio_format, "mp3", "m4a", "opus", "webm", "flac", "aac", "ogg", "wav"):
             existing_path = os.path.join(output_dir, f"{filename}.{ext}")
             if os.path.isfile(existing_path):
-                return True, existing_path, None
+                # A previous version could leave an already-downloaded file
+                # untagged (or it may have been tagged by another tool).  Keep
+                # the duplicate-download shortcut, but still apply the import
+                # metadata before reporting it as complete.
+                self._embed_metadata(existing_path, item)
+                return True, existing_path, None, getattr(item, "source_title", None)
+
+        selected_url, source_title, match_error = self._find_matching_video(query, item)
+        if not selected_url:
+            return False, None, match_error or "No suitable YouTube result found", None
 
         cmd = [
             self.config.get("ytdlp_path") or "yt-dlp",
-            f"ytsearch1:{query}",
+            selected_url,
             "-x",
             "--audio-format", audio_format,
             "-o", os.path.join(output_dir, f"{filename}.%(ext)s"),
@@ -193,24 +206,91 @@ class DownloadWorker(QThread):
                 if os.path.exists(expected_path):
                     # Embed metadata if enabled
                     self._embed_metadata(expected_path, item)
-                    return True, expected_path, None
+                    return True, expected_path, None, source_title
 
                 # Try to find with any extension
                 for ext in [audio_format, "mp3", "m4a", "opus", "webm"]:
                     check_path = os.path.join(output_dir, f"{filename}.{ext}")
                     if os.path.exists(check_path):
                         self._embed_metadata(check_path, item)
-                        return True, check_path, None
+                        return True, check_path, None, source_title
 
-                return True, None, None
+                return True, None, None, source_title
             else:
                 error_msg = stderr.strip() if stderr else "Download failed"
-                return False, None, error_msg
+                return False, None, error_msg, None
 
         except FileNotFoundError:
-            return False, None, "yt-dlp not found. Please install yt-dlp."
+            return False, None, "yt-dlp not found. Please install yt-dlp.", None
         except Exception as e:
-            return False, None, str(e)
+            return False, None, str(e), None
+
+    def _find_matching_video(self, query: str, item: QueueItem) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """Choose the first YouTube search result close to Spotify's duration."""
+        try:
+            result_limit = max(1, int(self.config.get("video_search_result_limit", 5)))
+            tolerance = max(0, int(self.config.get("video_duration_tolerance_seconds", 15)))
+        except (TypeError, ValueError):
+            result_limit, tolerance = 5, 15
+
+        command = [
+            self.config.get("ytdlp_path") or "yt-dlp",
+            f"ytsearch{result_limit}:{query}",
+            "--flat-playlist",
+            "--dump-single-json",
+            "--quiet",
+        ]
+        command.extend(build_extra_ytdlp_args(self.config))
+        try:
+            process = subprocess.run(command, capture_output=True, text=True)
+        except FileNotFoundError:
+            return None, None, "yt-dlp not found. Please install yt-dlp."
+        except Exception as exc:
+            return None, None, f"Could not search YouTube: {exc}"
+
+        if process.returncode != 0:
+            return None, None, process.stderr.strip() or "YouTube search failed"
+
+        candidates = []
+        for line in process.stdout.splitlines():
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            candidates.extend(
+                candidate
+                for candidate in (payload.get("entries") or [payload])
+                if isinstance(candidate, dict)
+            )
+
+        try:
+            expected_duration = float(item.metadata.get("duration_ms", "")) / 1000
+        except (AttributeError, TypeError, ValueError):
+            expected_duration = None
+
+        for candidate in candidates[:result_limit]:
+            duration = candidate.get("duration")
+            if duration is None:
+                continue
+            try:
+                candidate_duration = float(duration)
+            except (TypeError, ValueError):
+                continue
+            if expected_duration is not None and abs(candidate_duration - expected_duration) > tolerance:
+                continue
+            video_id = candidate.get("id")
+            video_url = candidate.get("webpage_url") or candidate.get("url")
+            if not video_url and video_id:
+                video_url = f"https://www.youtube.com/watch?v={video_id}"
+            if video_url:
+                return video_url, candidate.get("title") or query, None
+
+        if expected_duration is None:
+            return None, None, "The imported track has no Spotify duration to verify against"
+        return None, None, (
+            f"No YouTube result was within {tolerance} seconds of Spotify's "
+            f"{round(expected_duration)}-second duration"
+        )
 
     def _embed_metadata(self, file_path: str, item: QueueItem):
         """Embed metadata into the downloaded file."""
