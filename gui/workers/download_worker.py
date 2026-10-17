@@ -236,7 +236,6 @@ class DownloadWorker(QThread):
         command = [
             self.config.get("ytdlp_path") or "yt-dlp",
             f"ytsearch{result_limit}:{query}",
-            "--flat-playlist",
             "--dump-single-json",
             "--quiet",
         ]
@@ -279,7 +278,10 @@ class DownloadWorker(QThread):
             if expected_duration is not None and abs(candidate_duration - expected_duration) > tolerance:
                 continue
             video_id = candidate.get("id")
-            video_url = candidate.get("webpage_url") or candidate.get("url")
+            video_url = candidate.get("webpage_url")
+            flat_url = candidate.get("url")
+            if not video_url and isinstance(flat_url, str) and flat_url.startswith(("http://", "https://")):
+                video_url = flat_url
             if not video_url and video_id:
                 video_url = f"https://www.youtube.com/watch?v={video_id}"
             if video_url:

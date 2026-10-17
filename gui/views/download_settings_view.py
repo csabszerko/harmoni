@@ -34,8 +34,43 @@ class SettingRow(QFrame):
         text.addWidget(detail)
         layout.addLayout(text, 1)
 
-        control.setMinimumWidth(240)
+        control.setFixedWidth(280)
         layout.addWidget(control, 0, Qt.AlignVCenter)
+
+
+def _scroll_settings_from_wheel(widget: QWidget, delta: int) -> bool:
+    """Move the settings page when a wheel event lands on a child control."""
+    parent = widget.parentWidget()
+    while parent:
+        if isinstance(parent, QScrollArea):
+            scrollbar = parent.verticalScrollBar()
+            if scrollbar.maximum() > scrollbar.minimum() and delta:
+                steps = delta / 120
+                scrollbar.setValue(round(scrollbar.value() - steps * scrollbar.singleStep() * 3))
+                return True
+            return False
+        parent = parent.parentWidget()
+    return False
+
+
+class SettingsSpinBox(QSpinBox):
+    """A spin box that leaves the mouse wheel for scrolling the page."""
+
+    def wheelEvent(self, event) -> None:
+        if _scroll_settings_from_wheel(self, event.angleDelta().y()):
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+
+class SettingsComboBox(QComboBox):
+    """A combo box that leaves the mouse wheel for scrolling the page."""
+
+    def wheelEvent(self, event) -> None:
+        if _scroll_settings_from_wheel(self, event.angleDelta().y()):
+            event.accept()
+            return
+        super().wheelEvent(event)
 
 
 class DownloadSettingsView(QWidget):
@@ -52,10 +87,10 @@ class DownloadSettingsView(QWidget):
     def _setup_ui(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        outer.addWidget(scroll)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        outer.addWidget(self.scroll_area)
 
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -79,7 +114,7 @@ class DownloadSettingsView(QWidget):
         self.save_button.setFixedWidth(150)
         self.save_button.clicked.connect(self._save)
         layout.addWidget(self.save_button)
-        scroll.setWidget(page)
+        self.scroll_area.setWidget(page)
 
     def _section(self, title: str, rows: list[SettingRow]) -> QFrame:
         section = QFrame()
@@ -97,9 +132,11 @@ class DownloadSettingsView(QWidget):
 
     def _download_section(self) -> QFrame:
         self.output_dir_input = QLineEdit()
+        self.output_dir_input.setFixedHeight(40)
         choose_folder = QPushButton("Choose")
         choose_folder.setObjectName("secondary")
         choose_folder.setFixedWidth(88)
+        choose_folder.setFixedHeight(40)
         choose_folder.clicked.connect(self._choose_output_dir)
         destination = QWidget()
         destination_layout = QHBoxLayout(destination)
@@ -107,16 +144,24 @@ class DownloadSettingsView(QWidget):
         destination_layout.setSpacing(8)
         destination_layout.addWidget(self.output_dir_input, 1)
         destination_layout.addWidget(choose_folder)
+        destination.setFixedHeight(40)
 
-        self.format_combo = QComboBox()
+        self.format_combo = SettingsComboBox()
         self.format_combo.addItems(["mp3", "m4a", "flac", "aac", "ogg", "wav"])
-        self.parallel_spin = QSpinBox()
+        self.parallel_spin = SettingsSpinBox()
         self.parallel_spin.setRange(1, 8)
-        self.video_search_limit_spin = QSpinBox()
+        self.video_search_limit_spin = SettingsSpinBox()
         self.video_search_limit_spin.setRange(1, 20)
-        self.video_duration_tolerance_spin = QSpinBox()
+        self.video_duration_tolerance_spin = SettingsSpinBox()
         self.video_duration_tolerance_spin.setRange(0, 600)
         self.video_duration_tolerance_spin.setSuffix(" seconds")
+        for control in (
+            self.format_combo,
+            self.parallel_spin,
+            self.video_search_limit_spin,
+            self.video_duration_tolerance_spin,
+        ):
+            control.setFixedHeight(40)
 
         return self._section("Downloads", [
             SettingRow("Default download folder", "Used when a download does not have a folder selected.", destination),
@@ -136,10 +181,13 @@ class DownloadSettingsView(QWidget):
 
     def _advanced_section(self) -> QFrame:
         self.ytdlp_path_input = QLineEdit()
+        self.ytdlp_path_input.setFixedHeight(40)
         self.ytdlp_path_input.setPlaceholderText("Auto-detect")
         self.ffmpeg_path_input = QLineEdit()
+        self.ffmpeg_path_input.setFixedHeight(40)
         self.ffmpeg_path_input.setPlaceholderText("Auto-detect")
         self.ytdlp_args_input = QLineEdit()
+        self.ytdlp_args_input.setFixedHeight(40)
         self.ytdlp_args_input.setPlaceholderText("Optional arguments")
         return self._section("Advanced", [
             SettingRow("yt-dlp location", "Leave blank to use the installed command.", self.ytdlp_path_input),

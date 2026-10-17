@@ -5,12 +5,14 @@ __pycache__/
 *.pyd
 .venv/
 venv/
+.build-venv/
 
 # Build artifacts
 dist/
 build/
 bin/
 *.spec.bak
+*.spec
 *.dmg
 *.zip
 Harmoni-*.tar.gz

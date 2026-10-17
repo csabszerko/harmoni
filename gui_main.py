@@ -51,24 +51,15 @@ def get_app_dir() -> str:
 
 def create_default_config():
     """Create default config.json if it doesn't exist."""
-    import shutil
+    import json
+    from config import CONFIG_PATH, DEFAULT_CONFIG
 
-    app_dir = get_app_dir()
-    config_path = os.path.join(app_dir, "config.json")
-    example_path = os.path.join(app_dir, "config.json.example")
-
-    if not os.path.exists(config_path):
-        if os.path.exists(example_path):
-            shutil.copy(example_path, config_path)
-            print(f"Created config.json from example file")
-        else:
-            # Create minimal config
-            import json
-            from config import DEFAULT_CONFIG
-
-            with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(DEFAULT_CONFIG, f, indent=2)
-            print(f"Created default config.json")
+    if not os.path.exists(CONFIG_PATH):
+        os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+        with open(CONFIG_PATH, "w", encoding="utf-8") as file:
+            json.dump(DEFAULT_CONFIG, file, indent=2)
+            file.write("\n")
+        print("Created default config.json")
 
 
 def configure_bundled_binaries():
@@ -80,7 +71,9 @@ def configure_bundled_binaries():
 
     # Check config for custom paths first
     try:
-        config_path = os.path.join(get_app_dir(), "config.json")
+        from config import CONFIG_PATH
+
+        config_path = CONFIG_PATH
         if os.path.exists(config_path):
             import json
             with open(config_path, "r") as f:

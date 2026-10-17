@@ -30,6 +30,9 @@ class MainWindow(QMainWindow):
         self.download_queue = DownloadQueue()
         self.navigation_buttons: list[NavigationButton] = []
 
+        # Keep the native drag region and close/minimize/zoom controls while
+        # allowing macOS to blend its title bar into the window's content.
+        self.setUnifiedTitleAndToolBarOnMac(True)
         self.setWindowTitle("Harmoni")
         self.setMinimumSize(900, 620)
         self.resize(1180, 760)

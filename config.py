@@ -10,7 +10,20 @@ def get_app_dir() -> str:
     return os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
 
 
-CONFIG_PATH = os.path.join(get_app_dir(), "config.json")
+def get_config_path() -> str:
+    """Return a writable config location for both source and bundled apps."""
+    if getattr(sys, "frozen", False) and sys.platform == "darwin":
+        return os.path.join(
+            os.path.expanduser("~"),
+            "Library",
+            "Application Support",
+            "HARMONI",
+            "config.json",
+        )
+    return os.path.join(get_app_dir(), "config.json")
+
+
+CONFIG_PATH = get_config_path()
 
 DEFAULT_CONFIG = {
     "output_dir": "music",
@@ -49,6 +62,7 @@ def load_config() -> dict[str, Any]:
 
 def save_config(config: dict[str, Any]) -> bool:
     clean_config = {key: config[key] for key in DEFAULT_CONFIG if key in config}
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
     with open(CONFIG_PATH, "w", encoding="utf-8") as file:
         json.dump(clean_config, file, indent=2)
         file.write("\n")

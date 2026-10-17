@@ -206,7 +206,7 @@ class DownloadsView(QWidget):
         artist_item.setData(Qt.UserRole, item.id)
         self.table.setItem(row, 0, artist_item)
 
-        self.table.setCellWidget(row, 1, self._track_cell(item))
+        self._set_track_display(row, item)
         self.table.setItem(row, 2, QTableWidgetItem(item.playlist or "—"))
 
         status_item = QTableWidgetItem(item.status.value.title())
@@ -219,8 +219,6 @@ class DownloadsView(QWidget):
         progress.setTextVisible(False)
         progress.setFixedHeight(6)
         self.table.setCellWidget(row, 4, progress)
-        self._resize_track_row(row)
-
         self._update_stats(self.queue.pending_count)
 
     def _on_item_updated(self, item):
@@ -229,12 +227,7 @@ class DownloadsView(QWidget):
                 status_item = self.table.item(row, 3)
                 status_item.setText(item.status.value.title())
 
-                track_cell = self.table.cellWidget(row, 1)
-                source_label = track_cell.findChild(QLabel, "youtubeSourceTitle") if track_cell else None
-                if source_label:
-                    source_label.setText(item.source_title or "")
-                    source_label.setVisible(bool(item.source_title))
-                    self._resize_track_row(row)
+                self._set_track_display(row, item)
 
                 if item.status == DownloadStatus.COMPLETED:
                     status_item.setForeground(QColor("#B8D5C0"))
@@ -261,15 +254,38 @@ class DownloadsView(QWidget):
         layout.setSpacing(2)
 
         spotify_title = QLabel(item.track)
+        spotify_title.setWordWrap(False)
+        spotify_title.setFixedHeight(18)
+        spotify_title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         layout.addWidget(spotify_title)
 
         source_title = QLabel(item.source_title or "")
         source_title.setObjectName("youtubeSourceTitle")
         source_title.setStyleSheet("color: #A4A4AC; font-size: 11px; background: transparent;")
         source_title.setVisible(bool(item.source_title))
-        source_title.setWordWrap(True)
+        source_title.setWordWrap(False)
+        source_title.setFixedHeight(15)
+        source_title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         layout.addWidget(source_title)
         return cell
+
+    def _set_track_display(self, row: int, item) -> None:
+        """Use a native table item until a second line is actually needed."""
+        if not item.source_title:
+            if self.table.cellWidget(row, 1):
+                self.table.removeCellWidget(row, 1)
+            self.table.setItem(row, 1, QTableWidgetItem(item.track))
+            self.table.setRowHeight(row, self.table.verticalHeader().defaultSectionSize())
+            return
+
+        track_cell = self.table.cellWidget(row, 1)
+        if not track_cell:
+            self.table.setCellWidget(row, 1, self._track_cell(item))
+        else:
+            source_label = track_cell.findChild(QLabel, "youtubeSourceTitle")
+            if source_label:
+                source_label.setText(item.source_title)
+        self._resize_track_row(row)
 
     def _resize_track_row(self, row: int) -> None:
         """Fit the embedded two-line title widget; Qt ignores it when auto-sizing rows."""
@@ -278,7 +294,7 @@ class DownloadsView(QWidget):
             track_cell.adjustSize()
             self.table.setRowHeight(
                 row,
-                max(self.table.verticalHeader().defaultSectionSize(), track_cell.sizeHint().height()),
+                max(45, self.table.verticalHeader().defaultSectionSize()),
             )
 
     def _on_item_removed(self, item_id: str):
